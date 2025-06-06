@@ -1,0 +1,130 @@
+Common:
+  Name: strategic_mixed_decoy
+
+SurfaceShip:
+  - ManueverObject:
+      x: 0
+      y: 0
+      z: 0
+      heading: 0
+      xy_speed: 3
+      z_speed: 0
+    LauncherObject:
+      DecoyObjects:
+        - type: "stationary"
+          elevation: 45
+          azimuth: 45
+          speed: 15
+          lifespan: 5
+        - type: "stationary"
+          elevation: 45
+          azimuth: 135
+          speed: 15
+          lifespan: 5
+        - type: "stationary"
+          elevation: 45
+          azimuth: 225
+          speed: 15
+          lifespan: 5
+        - type: "stationary"
+          elevation: 45
+          azimuth: 315
+          speed: 15
+          lifespan: 5
+    DetectorObject:
+      detection_range: 40
+    CommandControlObject:
+      evation_heading: 270
+      decoy_deployment_range: 35
+
+Torpedo:
+  - ManueverObject:
+      x: 20
+      y: 20
+      z: -10
+      heading: 270
+      xy_speed: 5
+      z_speed: 1
+    DetectorObject:
+      detection_range: 35 
+    TorpedoControlObject:
+      range: 1
+    
+      
+
+# SurfaceShip:
+#   - ManueverObject:
+#       x: 0
+#       y: 0
+#       z: 0
+#       heading: 0
+#       xy_speed: 3
+#       z_speed: 0
+#     LauncherObject:
+#       DecoyObjects:
+#         # Phase 1: Static decoys toward missile direction (block detection)
+#         - type: "stationary"
+#           elevation: 0
+#           azimuth: 0    # torpedo direction (northeast)
+#           speed: 20
+#           lifespan: 10
+#         - type: "stationary"
+#           elevation: 0
+#           azimuth: 45    # near torpedo direction
+#           speed: 18
+#           lifespan: 8
+#         - type: "stationary"
+#           elevation: 0
+#           azimuth: 315    # near torpedo direction
+#           speed: 18
+#           lifespan: 8
+#         # Phase 2: Fan-shaped static deployment (path diversion)
+#         - type: "stationary"
+#           elevation: 45
+#           azimuth: 270   # west (evasion direction)
+#           speed: 15
+#           lifespan: 8
+#         - type: "stationary"
+#           elevation: 45
+#           azimuth: 225   # southwest
+#           speed: 15
+#           lifespan: 6
+#         - type: "stationary"
+#           elevation: 45
+#           azimuth: 315   # northwest
+#           speed: 15
+#           lifespan: 6
+#         # Phase 3: Dynamic decoys perpendicular to path (core strategy)
+#         - type: "self_propelled"
+#           elevation: 45
+#           azimuth: 180   # launch south
+#           speed: 12
+#           lifespan: 15
+#           heading: 135   # move southeast
+#           xy_speed: 4
+#         - type: "self_propelled"
+#           elevation: 45
+#           azimuth: 0     # launch north
+#           speed: 12
+#           lifespan: 15
+#           heading: 315   # move northwest
+#           xy_speed: 4
+
+#     DetectorObject:
+#       detection_range: 40
+#     CommandControlObject:
+#       evation_heading: 270
+#       decoy_deployment_range: 35
+
+# Torpedo:
+#   - ManueverObject:
+#       x: 20
+#       y: 20
+#       z: -10
+#       heading: 270
+#       xy_speed: 5
+#       z_speed: 1
+#     DetectorObject:
+#       detection_range: 35 
+#     TorpedoControlObject:
+#       range: 1 

@@ -1,0 +1,69 @@
+Common:
+  Name: strategic_mixed_decoy
+
+SurfaceShip:
+  - ManueverObject:
+      x: 0
+      y: 0
+      z: 0
+      heading: 0
+      xy_speed: 3
+      z_speed: 0
+    LauncherObject:
+      DecoyObjects:
+        # Cross-shaped static decoys (4 directions)
+        - type: "stationary"
+          elevation: 0
+          azimuth: 270   # north (Tracking SurfaceShip)
+          speed: 3
+          lifespan: 15
+        - type: "stationary"
+          elevation: 0
+          azimuth: 255    # west (left)
+          speed: 3
+          lifespan: 15
+        - type: "stationary"
+          elevation: 0
+          azimuth: 285   # east (right)
+          speed: 3
+          lifespan: 15
+        # Detection blocking decoy (toward torpedo direction)
+        - type: "stationary"
+          elevation: 0
+          azimuth: 90    # torpedo approach direction (northeast)
+          speed: 1
+          lifespan: 15
+        # # Dynamic decoys (perpendicular movement)
+        # - type: "self_propelled"
+        #   elevation: 0
+        #   azimuth: 255   # launch southeast
+        #   speed: 3
+        #   lifespan: 12
+        #   heading: 270   # move southwest
+        #   xy_speed: 5
+        # - type: "self_propelled"
+        #   elevation: 0
+        #   azimuth: 285   # launch northwest
+        #   speed: 3
+        #   lifespan: 12
+        #   heading: 270    # move northeast
+        #   xy_speed: 5
+
+    DetectorObject:
+      detection_range: 40
+    CommandControlObject:
+      evation_heading: 270
+      decoy_deployment_range: 35
+
+Torpedo:
+  - ManueverObject:
+      x: 20
+      y: 20
+      z: -10
+      heading: 270
+      xy_speed: 5
+      z_speed: 1
+    DetectorObject:
+      detection_range: 35 
+    TorpedoControlObject:
+      range: 1 
