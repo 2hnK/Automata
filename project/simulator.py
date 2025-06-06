@@ -19,7 +19,7 @@ if len(sys.argv) == 3:
 		defense = sys.argv[2]
 
 pos_plot = PositionPlotter()
-sm = ScenarioManager(abs_path, "stationary_decoy.yaml", attack, defense)
+sm = ScenarioManager(abs_path, "strategic_mixed_decoy.yaml", attack, defense)
 se = SysExecutor(1, ex_mode=ExecutionType.R_TIME)
 ObjectDB().set_executor(se)
 
