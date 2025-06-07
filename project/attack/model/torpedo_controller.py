@@ -126,23 +126,23 @@ class TorpedoCommandControl(BehaviorModel):
         target_pos = target.get_position()
         target_id = str(target_pos)
         
-        # 1. 거리 점수 계산 (30% 가중치)
+        # 1. 거리 점수 계산 (20% 가중치)
         torpedo_pos = self.platform.mo.get_position()
         distance = math.sqrt((target_pos[0] - torpedo_pos[0])**2 + 
                            (target_pos[1] - torpedo_pos[1])**2)
-        distance_score = max(0, 30 - distance)  # 거리 1당 1점 감소, 최대 30점
+        distance_score = max(0, 60 - distance)  # 거리 1당 1점 감소, 최대 60점
         
-        # 2. 기본 수상함 점수 (40% 가중치)
+        # 2. 기본 수상함 점수 (50% 가중치)
         # 하드 필터링을 통과한 모든 타겟에게 동일한 기본 점수
-        base_score = 40  # 안정적인 기본 점수
+        base_score = 50  # 안정적인 기본 점수
         
         # 3. 집요한 추적 점수 (30% 가중치) - 핵심 차별화 요소
         tracking_count = self.target_tracking_history.get(target_id, 0)
         persistence_score = min(100, 10 + tracking_count * 30)  # 기본 10점 + 추적 보너스
         
         # 가중 평균으로 최종 점수 계산
-        total_score = (distance_score * 0.3 + 
-                      base_score * 0.4 + 
+        total_score = (distance_score * 0.2 + 
+                      base_score * 0.5 + 
                       persistence_score * 0.3)
         
         return total_score
