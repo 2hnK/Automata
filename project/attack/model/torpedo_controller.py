@@ -2,15 +2,16 @@ import platform
 from pyjevsim import BehaviorModel, Infinite
 import datetime
 import math
+import random
 
 from pyjevsim.system_message import SysMessage
 
 class TorpedoCommandControl(BehaviorModel):
     """
-    공격 측 지능형 어뢰 제어 시스템
-    - 게임 룰 기반 하드 필터링 (속도 2.5~3.5 범위만 허용)
-    - 실용적 타겟 선택 알고리즘
-    - 집요한 추적 시스템으로 성공률 극대화
+    군집 지능 기반 어뢰 시스템
+    - 개미 군집 최적화 (ACO) 적용
+    - 페로몬 기반 경로 학습
+    - 집단 지성으로 최적 목표 탐색
     """
     def __init__(self, name, platform):
         BehaviorModel.__init__(self, name)
@@ -27,228 +28,246 @@ class TorpedoCommandControl(BehaviorModel):
         self.insert_output_port("target")
         self.threat_list = []
         
-        # 실용적 타겟 시스템 설계
-        self.current_target_id = None
-        self.target_lock_count = 0
-        self.min_observation_cycles = 2  # 최소 관찰 사이클 (실용적)
-        self.target_history = {}
-        self.switch_threshold = 0.15     # 15% 개선 시에만 타겟 변경 (민감한 반응)
+        # 군집 지능 매개변수
+        self.num_ants = 5  # 가상 개미 수
+        self.pheromone_map = {}  # 페로몬 지도
+        self.evaporation_rate = 0.1  # 증발률
+        self.pheromone_strength = 1.0
         
-        # 타겟별 추적 히스토리
-        self.target_tracking_history = {}  # {target_id: tracking_count}
+        # 개미별 특성
+        self.ant_types = {
+            'EXPLORER': {'exploration_factor': 0.8, 'speed': 1.2},
+            'HUNTER': {'exploration_factor': 0.3, 'speed': 1.5},
+            'ANALYZER': {'exploration_factor': 0.5, 'speed': 1.0},
+            'SCOUT': {'exploration_factor': 0.9, 'speed': 0.8},
+            'VETERAN': {'exploration_factor': 0.2, 'speed': 1.1}
+        }
         
-        # 패턴 분석 데이터
+        # 학습 데이터
+        self.successful_paths = []
+        self.target_success_history = {}
         self.time_step = 0
-        self.position_history = {}  # 위치 이력
-        self.velocity_history = {}  # 속도 이력
         
-        # 확실한 목표 분류
-        self.confirmed_ship_targets = set()  # 확인된 수상함
-        self.suspected_decoy_targets = set()  # 의심되는 기만기
+        # 환경 인식
+        self.environmental_factors = {
+            'threat_density': 0.0,
+            'dispersion_index': 0.0,
+            'center_of_mass': (0, 0)
+        }
         
-        print("🎯 [지능형 어뢰 시스템] 활성화 - 게임 룰 기반 필터링")
+        print("🐜 [군집 지능 어뢰] 개미 군집 최적화 시스템 활성화")
+        print(f"   가상 개미 수: {self.num_ants}, 개미 유형: {list(self.ant_types.keys())}")
 
-    def update_target_history(self, target):
-        """
-        타겟 이력 업데이트
-        - 위치 및 속도 추적
-        - 메모리 효율적 관리
-        """
-        target_pos = target.get_position()
-        target_id = str(target_pos)
-        current_time = self.time_step
+    def update_environment_analysis(self, threat_list):
+        """환경 분석 업데이트"""
+        if not threat_list:
+            return
         
-        # 위치 이력 업데이트
-        if target_id not in self.position_history:
-            self.position_history[target_id] = []
-        self.position_history[target_id].append((current_time, target_pos))
+        # 위협 밀도 계산
+        self.environmental_factors['threat_density'] = len(threat_list)
         
-        # 최근 4개 이력만 유지 (메모리 효율성)
-        if len(self.position_history[target_id]) > 4:
-            self.position_history[target_id] = self.position_history[target_id][-4:]
-        
-        # 속도 계산 및 이력 관리
-        if len(self.position_history[target_id]) >= 2:
-            prev_time, prev_pos = self.position_history[target_id][-2]
-            curr_time, curr_pos = self.position_history[target_id][-1]
+        # 위협 분산도 계산
+        positions = [t.get_position() for t in threat_list]
+        if len(positions) > 1:
+            center_x = sum(pos[0] for pos in positions) / len(positions)
+            center_y = sum(pos[1] for pos in positions) / len(positions)
+            self.environmental_factors['center_of_mass'] = (center_x, center_y)
             
-            if curr_time != prev_time:
-                velocity = (
-                    (curr_pos[0] - prev_pos[0]) / (curr_time - prev_time),
-                    (curr_pos[1] - prev_pos[1]) / (curr_time - prev_time)
-                )
-                
-                if target_id not in self.velocity_history:
-                    self.velocity_history[target_id] = []
-                self.velocity_history[target_id].append((curr_time, velocity))
-                
-                # 최근 3개 속도 이력만 유지
-                if len(self.velocity_history[target_id]) > 3:
-                    self.velocity_history[target_id] = self.velocity_history[target_id][-3:]
+            # 분산 지수
+            distances = [math.sqrt((pos[0] - center_x)**2 + (pos[1] - center_y)**2) 
+                        for pos in positions]
+            self.environmental_factors['dispersion_index'] = sum(distances) / len(distances)
 
-    def is_valid_ship_target(self, target):
-        """
-        게임 룰 기반 수상함 필터링
-        - 수상함 속도 범위: 2.5~3.5 (게임 룰: 수상함 속도 3.0 고정)
-        - 범위 밖의 목표는 명백한 기만기로 판단
-        """
-        target_pos = target.get_position()
-        target_id = str(target_pos)
-        
-        # 충분한 관찰 데이터가 있는 경우만 필터링 적용
-        if (target_id in self.velocity_history and 
-            len(self.velocity_history[target_id]) >= 2):
-            
-            velocities = self.velocity_history[target_id]
-            speeds = []
-            
-            for _, velocity in velocities:
-                speed = math.sqrt(velocity[0]**2 + velocity[1]**2)
-                speeds.append(speed)
-            
-            if speeds:
-                avg_speed = sum(speeds) / len(speeds)
-                
-                # 게임 룰 적용: 수상함 속도 3.0 기준
-                # 2.5 미만 또는 3.5 초과는 명백한 기만기
-                if avg_speed < 2.5 or avg_speed > 3.5:
-                    return False  # 기만기로 판단, 필터링
-                
-        return True  # 유효한 수상함 후보
+    def evaporate_pheromones(self):
+        """페로몬 증발"""
+        for location in list(self.pheromone_map.keys()):
+            self.pheromone_map[location] *= (1 - self.evaporation_rate)
+            if self.pheromone_map[location] < 0.01:
+                del self.pheromone_map[location]
 
-    def calculate_target_score(self, target):
-        """
-        실용적 타겟 점수 계산 시스템
-        - 거리 점수 (30%): 가까운 목표 우선
-        - 기본 수상함 점수 (40%): 필터링 통과한 목표 동일 점수
-        - 집요한 추적 점수 (30%): 지속적 추적 보너스
-        """
+    def deposit_pheromone(self, location, strength):
+        """페로몬 증착"""
+        location_key = f"{location[0]:.1f},{location[1]:.1f}"
+        if location_key not in self.pheromone_map:
+            self.pheromone_map[location_key] = 0
+        self.pheromone_map[location_key] += strength
+
+    def get_pheromone_level(self, location):
+        """특정 위치의 페로몬 농도"""
+        location_key = f"{location[0]:.1f},{location[1]:.1f}"
+        return self.pheromone_map.get(location_key, 0)
+
+    def ant_evaluate_target(self, ant_type, target, threat_list):
+        """개미별 목표 평가"""
         target_pos = target.get_position()
-        target_id = str(target_pos)
-        
-        # 1. 거리 점수 계산 (20% 가중치)
         torpedo_pos = self.platform.mo.get_position()
+        
+        # 기본 거리 점수
         distance = math.sqrt((target_pos[0] - torpedo_pos[0])**2 + 
                            (target_pos[1] - torpedo_pos[1])**2)
-        distance_score = max(0, 60 - distance)  # 거리 1당 1점 감소, 최대 60점
+        distance_score = max(0, 100 - distance * 2)
         
-        # 2. 기본 수상함 점수 (50% 가중치)
-        # 하드 필터링을 통과한 모든 타겟에게 동일한 기본 점수
-        base_score = 50  # 안정적인 기본 점수
+        # 페로몬 농도
+        pheromone_score = self.get_pheromone_level(target_pos) * 50
         
-        # 3. 집요한 추적 점수 (30% 가중치) - 핵심 차별화 요소
-        tracking_count = self.target_tracking_history.get(target_id, 0)
-        persistence_score = min(100, 10 + tracking_count * 30)  # 기본 10점 + 추적 보너스
+        # 개미 유형별 특성
+        ant_props = self.ant_types[ant_type]
         
-        # 가중 평균으로 최종 점수 계산
-        total_score = (distance_score * 0.2 + 
-                      base_score * 0.5 + 
-                      persistence_score * 0.3)
+        if ant_type == 'EXPLORER':
+            # 탐험가: 새로운 지역 선호
+            novelty_score = 30 if pheromone_score < 10 else 0
+            exploration_bonus = random.uniform(0, 30)
+            return distance_score + novelty_score + exploration_bonus
+            
+        elif ant_type == 'HUNTER':
+            # 사냥꾼: 가까운 목표 집중
+            if distance < 20:
+                return distance_score + 40
+            return distance_score
+            
+        elif ant_type == 'ANALYZER':
+            # 분석가: 패턴 기반 평가
+            pattern_score = 0
+            if len(threat_list) > 1:
+                center = self.environmental_factors['center_of_mass']
+                center_distance = math.sqrt((target_pos[0] - center[0])**2 + 
+                                          (target_pos[1] - center[1])**2)
+                if center_distance < 15:
+                    pattern_score = 25  # 중심 근처 선호
+            return distance_score + pattern_score + pheromone_score
+            
+        elif ant_type == 'SCOUT':
+            # 정찰병: 가장자리 탐색
+            if len(threat_list) > 1:
+                center = self.environmental_factors['center_of_mass']
+                edge_distance = math.sqrt((target_pos[0] - center[0])**2 + 
+                                        (target_pos[1] - center[1])**2)
+                edge_score = min(30, edge_distance)
+                return distance_score + edge_score
+            return distance_score + 20
+            
+        else:  # VETERAN
+            # 베테랑: 성공 기록 기반
+            success_score = self.target_success_history.get(str(target_pos), 0) * 20
+            return distance_score + success_score + pheromone_score
+
+    def swarm_decision_making(self, threat_list):
+        """군집 의사결정"""
+        if not threat_list:
+            return None
         
-        return total_score
+        ant_evaluations = {}
+        
+        # 각 개미가 모든 목표를 평가
+        for ant_type in self.ant_types:
+            ant_evaluations[ant_type] = {}
+            for target in threat_list:
+                score = self.ant_evaluate_target(ant_type, target, threat_list)
+                ant_evaluations[ant_type][target] = score
+        
+        # 투표 집계 (각 개미의 최고 선택에 가중치)
+        target_votes = {}
+        voting_details = {}
+        
+        for ant_type, evaluations in ant_evaluations.items():
+            if evaluations:
+                # 상위 2개 목표에 투표
+                sorted_targets = sorted(evaluations.items(), key=lambda x: x[1], reverse=True)
+                
+                for i, (target, score) in enumerate(sorted_targets[:2]):
+                    target_key = str(target.get_position())
+                    vote_weight = (2 - i) * (1 + score / 100)  # 점수에 비례한 가중치
+                    
+                    if target_key not in target_votes:
+                        target_votes[target_key] = 0
+                        voting_details[target_key] = []
+                    
+                    target_votes[target_key] += vote_weight
+                    voting_details[target_key].append(f"{ant_type}({vote_weight:.1f})")
+        
+        # 군집 합의
+        if target_votes:
+            best_target_key = max(target_votes, key=target_votes.get)
+            best_score = target_votes[best_target_key]
+            
+            # 해당 목표 찾기
+            selected_target = None
+            for target in threat_list:
+                if str(target.get_position()) == best_target_key:
+                    selected_target = target
+                    break
+            
+            # 투표 결과 출력
+            print(f"🐜 [군집 투표] 선택된 목표: {best_target_key} (총점: {best_score:.1f})")
+            for i, (target_key, score) in enumerate(sorted(target_votes.items(), 
+                                                         key=lambda x: x[1], reverse=True)[:3]):
+                voters = ", ".join(voting_details[target_key])
+                print(f"   {i+1}. {target_key}: {score:.1f}점 ({voters})")
+            
+            return selected_target
+        
+        return threat_list[0]
+
+    def update_pheromone_trails(self, selected_target):
+        """페로몬 경로 업데이트"""
+        if not selected_target:
+            return
+        
+        target_pos = selected_target.get_position()
+        torpedo_pos = self.platform.mo.get_position()
+        
+        # 거리 기반 성공도 계산
+        distance = math.sqrt((target_pos[0] - torpedo_pos[0])**2 + 
+                           (target_pos[1] - torpedo_pos[1])**2)
+        success_factor = max(0.1, 1 - distance / 50)
+        
+        # 페로몬 증착
+        pheromone_amount = self.pheromone_strength * success_factor
+        self.deposit_pheromone(target_pos, pheromone_amount)
+        
+        # 성공 기록 업데이트
+        target_key = str(target_pos)
+        if target_key not in self.target_success_history:
+            self.target_success_history[target_key] = 0
+        self.target_success_history[target_key] += success_factor * 0.1
+        
+        print(f"🐜 [페로몬 증착] 위치: {target_pos}, 강도: {pheromone_amount:.2f}")
 
     def select_best_target(self, threat_list):
-        """
-        게임 룰 기반 최적 타겟 선택
-        - 1단계: 게임 룰 기반 하드 필터링
-        - 2단계: 점수 기반 최적 타겟 선정
-        - 3단계: 타겟 스위칭 히스테리시스 적용
-        """
+        """군집 지능 기반 목표 선택"""
         if not threat_list:
             return None
         
         self.time_step += 1
         
-        # 1단계: 게임 룰 기반 하드 필터링
-        valid_targets = []
-        for target in threat_list:
-            # 모든 타겟의 이력 업데이트
-            self.update_target_history(target)
+        # 환경 분석
+        self.update_environment_analysis(threat_list)
+        
+        # 페로몬 증발
+        self.evaporate_pheromones()
+        
+        # 군집 의사결정
+        selected_target = self.swarm_decision_making(threat_list)
+        
+        # 페로몬 경로 업데이트
+        if selected_target:
+            self.update_pheromone_trails(selected_target)
             
-            # 유효한 수상함 후보인지 확인
-            if self.is_valid_ship_target(target):
-                valid_targets.append(target)
-            else:
-                # 필터링된 타겟을 의심 기만기로 등록
-                target_pos = target.get_position()
-                target_id = str(target_pos)
-                self.suspected_decoy_targets.add(target_id)
-        
-        # 안전장치: 유효한 타겟이 없으면 원본 리스트 사용
-        if not valid_targets:
-            print("⚠️ [필터링] 모든 타겟이 기만기로 판별됨, 원본 리스트 사용")
-            valid_targets = threat_list
-        else:
-            print(f"🎯 [필터링] {len(threat_list)}개 중 {len(valid_targets)}개 타겟이 수상함 후보로 선별")
-        
-        # 2단계: 유효한 타겟들의 점수 계산
-        target_scores = []
-        for target in valid_targets:
-            score_info = self.calculate_target_score(target)
-            target_scores.append({
-                'target': target,
-                'score_info': score_info
-            })
-        
-        # 점수 순으로 정렬 (내림차순)
-        target_scores.sort(key=lambda x: x['score_info'], reverse=True)
-        
-        # 상위 후보들 디버깅 정보 출력
-        print(f"🎯 [타겟 분석] 상위 후보들:")
-        for i, ts in enumerate(target_scores[:3]):
-            pos = ts['target'].get_position()
-            score = ts['score_info']
-            target_id = str(pos)
-            observation_count = len(self.position_history.get(target_id, []))
-            tracking_count = self.target_tracking_history.get(target_id, 0)
-            print(f"   {i+1}. 위치({pos[0]:.1f}, {pos[1]:.1f}): "
-                  f"총점 {score:.1f} "
-                  f"(관찰:{observation_count}회, 추적:{tracking_count}회)")
-        
-        best_candidate = target_scores[0]
-        best_target = best_candidate['target']
-        best_score = best_candidate['score_info']
-        best_target_id = str(best_target.get_position())
-        
-        # 3단계: 타겟 스위칭 히스테리시스 적용
-        if (self.current_target_id and self.target_lock_count >= 1):
-            current_target_score = None
-            for ts in target_scores:
-                target_id = str(ts['target'].get_position())
-                if target_id == self.current_target_id:
-                    current_target_score = ts['score_info']
-                    break
+            target_pos = selected_target.get_position()
+            pheromone_level = self.get_pheromone_level(target_pos)
+            print(f"🎯 [군집 선택] 목표: ({target_pos[0]:.1f}, {target_pos[1]:.1f}), "
+                  f"페로몬: {pheromone_level:.2f}")
             
-            if current_target_score:
-                improvement_ratio = (best_score - current_target_score) / max(current_target_score, 1)
-                if improvement_ratio < self.switch_threshold:
-                    # 현재 타겟 유지 (히스테리시스)
-                    for ts in target_scores:
-                        target_id = str(ts['target'].get_position())
-                        if target_id == self.current_target_id:
-                            # 추적 횟수 증가
-                            self.target_tracking_history[target_id] = \
-                                self.target_tracking_history.get(target_id, 0) + 1
-                            self.target_lock_count += 1
-                            print(f"🔒 [타겟 유지] {target_id} (추적:{self.target_tracking_history[target_id]}회)")
-                            return ts['target']
+            # 주기적 상태 보고
+            if self.time_step % 10 == 0:
+                print(f"📊 [군집 상태] 페로몬 맵: {len(self.pheromone_map)}개 위치, "
+                      f"위협 밀도: {self.environmental_factors['threat_density']}")
         
-        # 새로운 타겟 선택
-        if best_target_id != self.current_target_id:
-            self.current_target_id = best_target_id
-            self.target_lock_count = 0
-            print(f"🎯 [타겟 변경] {self.current_target_id} (점수: {best_score:.1f})")
-        
-        # 추적 횟수 증가
-        self.target_tracking_history[best_target_id] = \
-            self.target_tracking_history.get(best_target_id, 0) + 1
-        self.target_lock_count += 1
-        
-        return best_target
+        return selected_target
 
-    def ext_trans(self,port, msg):
+    def ext_trans(self, port, msg):
         if port == "threat_list":
-            print(f"🔍 [{self.get_name()}] 위협 목록 수신: {datetime.datetime.now()}")
+            print(f"🔍 [군집 지능] 위협 탐지: {datetime.datetime.now()}")
             self.threat_list = msg.retrieve()[0]
             self._cur_state = "Decision"
 
@@ -256,16 +275,15 @@ class TorpedoCommandControl(BehaviorModel):
         target = None
         
         if self.threat_list:
-            # 실용적 타겟 선택 시스템 사용
             target = self.select_best_target(self.threat_list)
             
             if target:
-                # 플랫폼의 기존 타겟 시스템도 활용
+                # 필수: platform.co.get_target() 사용
                 platform_target = self.platform.co.get_target(self.platform.mo, target)
                 if platform_target:
                     target = platform_target
-                
-        # house keeping
+        
+        # 필수: 초기화
         self.threat_list = []
         self.platform.co.reset_target()
         
@@ -274,10 +292,10 @@ class TorpedoCommandControl(BehaviorModel):
             message.insert(target)
             msg.insert_message(message)
         else:
-            print("⚠️ [경고] 타겟을 찾지 못했습니다!")
+            print("⚠️ [군집 지능] 목표 선택 실패")
         
         return msg
-        
+
     def int_trans(self):
         if self._cur_state == "Decision":
             self._cur_state = "Wait"
