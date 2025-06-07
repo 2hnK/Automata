@@ -11,43 +11,45 @@ SurfaceShip:
       z_speed: 0
     LauncherObject:
       DecoyObjects:
-        # Cross-shaped static decoys (4 directions)
-        - type: "stationary"
-          elevation: 0
-          azimuth: 270   # north (Tracking SurfaceShip)
-          speed: 3
+        # Strategy 1: Perfect ship speed mimics (highest priority targets)
+        - type: "self_propelled"
+          elevation: 20
+          azimuth: 45    # northeast (close to torpedo approach)
+          speed: 4
+          lifespan: 18
+          heading: 270   # west movement (same as ship evasion)
+          xy_speed: 3    # PERFECT ship speed mimic (critical!)
+        
+        - type: "self_propelled"
+          elevation: 25
+          azimuth: 315   # northwest (distant from torpedo)
+          speed: 4
+          lifespan: 18
+          heading: 225   # southwest movement
+          xy_speed: 3    # PERFECT ship speed mimic (critical!)
+
+        # Strategy 2: Near-perfect speed decoy (secondary target)
+        - type: "self_propelled"
+          elevation: 30
+          azimuth: 135   # southeast
+          speed: 5
           lifespan: 15
+          heading: 90    # east movement
+          xy_speed: 2.8  # close to ship speed (auxiliary effect)
+
+        # Strategy 3: Strategic proximity trap (distance score exploitation)
         - type: "stationary"
-          elevation: 0
-          azimuth: 255    # west (left)
-          speed: 3
-          lifespan: 15
+          elevation: 10
+          azimuth: 30    # close to torpedo direction
+          speed: 2
+          lifespan: 12
+
+        # Strategy 4: Persistence breaker (force target switching)
         - type: "stationary"
-          elevation: 0
-          azimuth: 285   # east (right)
-          speed: 3
-          lifespan: 15
-        # Detection blocking decoy (toward torpedo direction)
-        - type: "stationary"
-          elevation: 0
-          azimuth: 90    # torpedo approach direction (northeast)
+          elevation: 5
+          azimuth: 270   # west (ship escape direction)
           speed: 1
-          lifespan: 15
-        # # Dynamic decoys (perpendicular movement)
-        # - type: "self_propelled"
-        #   elevation: 0
-        #   azimuth: 255   # launch southeast
-        #   speed: 3
-        #   lifespan: 12
-        #   heading: 270   # move southwest
-        #   xy_speed: 5
-        # - type: "self_propelled"
-        #   elevation: 0
-        #   azimuth: 285   # launch northwest
-        #   speed: 3
-        #   lifespan: 12
-        #   heading: 270    # move northeast
-        #   xy_speed: 5
+          lifespan: 10
 
     DetectorObject:
       detection_range: 40
@@ -66,4 +68,9 @@ Torpedo:
     DetectorObject:
       detection_range: 35 
     TorpedoControlObject:
-      range: 1 
+      range: 1
+
+# Cost calculation:
+# Self-propelled decoys: 3 x 2.5 = 7.5
+# Stationary decoys: 2 x 1.0 = 2.0
+# Total cost: 9.5 (within limit 10) 
