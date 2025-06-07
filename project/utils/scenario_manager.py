@@ -1,4 +1,5 @@
 import yaml
+import os
 import importlib
 
 class ScenarioManager:
@@ -13,11 +14,11 @@ class ScenarioManager:
         torpedo_cls = getattr(apkg, 'Torpedo')
 
         # Read YAML file
-        with open(f"{abs_path}\\attack{apath}\\scenario\\{sce_name}", 'r') as f:
+        with open(os.path.join(abs_path, "attack", apath, "scenario", sce_name), 'r') as f:
             yaml_data = yaml.safe_load(f)
             self.torpedoes = [torpedo_cls(f"red_torpedo_{idx}", d) for idx, d in enumerate(yaml_data['Torpedo'])]
         
-        with open(f"{abs_path}\\defense{dpath}\\scenario\\{sce_name}", 'r') as f:
+        with open(os.path.join(abs_path, "defense", dpath, "scenario", sce_name), 'r') as f:
             yaml_data = yaml.safe_load(f)
             self.surface_ships = [ship_cls(f"blue_ship_{idx}", d) for idx, d in enumerate(yaml_data['SurfaceShip'])]
 
