@@ -13,23 +13,23 @@ SurfaceShip:
       DecoyObjects:
         - type: "stationary"
           elevation: 45
-          azimuth: 45
-          speed: 15
+          azimuth: 4
+          speed: 10
           lifespan: 5
         - type: "stationary"
           elevation: 45
           azimuth: 135
-          speed: 15
+          speed: 10
           lifespan: 5
         - type: "stationary"
           elevation: 45
           azimuth: 225
-          speed: 15
+          speed: 10
           lifespan: 5
         - type: "stationary"
           elevation: 45
           azimuth: 315
-          speed: 15
+          speed: 10
           lifespan: 5
     DetectorObject:
       detection_range: 40
@@ -50,4 +50,3 @@ Torpedo:
     TorpedoControlObject:
       range: 1
     
-      

@@ -14,23 +14,23 @@ SurfaceShip:
         - type: "stationary"
           elevation: 45
           azimuth: 45
-          speed: 15
-          lifespan: 5
+          speed: 8
+          lifespan: 8
         - type: "stationary"
           elevation: 45
           azimuth: 135
-          speed: 15
-          lifespan: 5
+          speed: 8
+          lifespan: 8
         - type: "stationary"
           elevation: 45
           azimuth: 225
-          speed: 15
-          lifespan: 5
+          speed: 8
+          lifespan: 8
         - type: "stationary"
           elevation: 45
           azimuth: 315
-          speed: 15
-          lifespan: 5
+          speed: 8
+          lifespan: 8
     DetectorObject:
       detection_range: 40
     CommandControlObject:
