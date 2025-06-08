@@ -53,6 +53,17 @@ class CommandControl(BehaviorModel):
         self.current_evasion_heading = 270  # 현재 회피 방향
         self.threat_detection_count = 0  # 연속 위협 탐지 횟수
         self.being_tracked = False  # 추적당하고 있는지 여부
+        
+        # 안정적 회피 시스템 추가
+        self.stable_evasion_heading = None    # 안정적 회피 목표 방향
+        self.evasion_direction_locked = False # 회피 방향 고정 여부
+        self.last_direction_change_time = None # 마지막 방향 변경 시간
+        self.direction_hold_duration = 8.0    # 방향 유지 시간 (초)
+        self.consecutive_stable_frames = 0    # 연속 안정 프레임 수
+        self.min_stable_frames = 5           # 최소 안정 프레임 수
+        self.heading_change_threshold = 5.0   # 방향 변경 임계값 (도)
+        self.successful_evasion_heading = None # 성공한 회피 방향
+        self.evasion_success_confirmed = False # 회피 성공 확정 여부
 
     def calculate_distance(self, obj1, obj2):
         # 두 객체 간의 거리 계산
@@ -114,161 +125,172 @@ class CommandControl(BehaviorModel):
         return None
 
     def calculate_optimal_escape_angle(self):
-        """현재 진행방향 기준 최적 회피각: 현재 heading ±45도 범위 내에서 어뢰로부터 가장 멀어지는 방향"""
+        """안정적 회피각 계산: 지그재그 현상 방지"""
         if not self.threat_list:
             current_heading = self.platform.mo.heading
             return current_heading
         
-        ship_pos = self.platform.mo.get_position()
+        current_time = datetime.datetime.now()
         current_heading = self.platform.mo.heading
+        ship_pos = self.platform.mo.get_position()
         
         # 가장 가까운 위협 찾기
         closest_threat = min(self.threat_list, 
                            key=lambda t: self.calculate_distance(self.platform.mo, t))
         threat_pos = closest_threat.get_position()
-        
-        # 위협 방향 계산
-        dx = threat_pos[0] - ship_pos[0]
-        dy = threat_pos[1] - ship_pos[1]
-        threat_angle = math.degrees(math.atan2(dx, dy))
-        if threat_angle < 0:
-            threat_angle += 360
-        
-        # 어뢰 속도 및 상태 확인
-        threat_speed = self.calculate_speed(closest_threat)
         distance = self.calculate_distance(self.platform.mo, closest_threat)
+        threat_speed = self.calculate_speed(closest_threat)
         
-        # 거리 변화량 기반 회피 무력화 판단
+        # 거리 변화량 추적
         is_distance_increasing = False
+        distance_change = 0
         if self.previous_threat_distance is not None:
             distance_change = distance - self.previous_threat_distance
             
-            # 거리 증가/감소 누적 판단 (더 관대한 조건)
-            if distance_change > 0.2:  # 0.2m 이상 증가
+            # 연속적인 거리 증가 판단
+            if distance_change > 0.3:  # 0.3m 이상 증가
                 self.distance_increase_count += 1
-            elif distance_change < -0.5:  # 0.5m 이상 감소해야만 리셋
-                self.distance_increase_count = max(0, self.distance_increase_count - 1)
-            # 미세한 변화(-0.5~0.2)는 카운트 유지
+                self.consecutive_stable_frames += 1
+            elif distance_change < -0.3:  # 0.3m 이상 감소
+                self.distance_increase_count = max(0, self.distance_increase_count - 2)
+                self.consecutive_stable_frames = 0
+            else:  # 미세한 변화
+                self.consecutive_stable_frames += 1
             
-            # 3번 연속으로 거리가 증가하거나 절대 거리가 25m 이상이면 회피 성공
-            if self.distance_increase_count >= 3 or distance > 25:
+            # 회피 성공 조건: 5번 연속 거리 증가 또는 안전거리 도달
+            if self.distance_increase_count >= 5 or distance > 50:
                 is_distance_increasing = True
         
-        # 이전 거리 업데이트
         self.previous_threat_distance = distance
         
-        # 어뢰 정지 상태 판단 (더 관대한 조건)
-        is_threat_stopped = threat_speed < 2.0  # 속도 2 미만이면 정지로 간주
-        is_safe_distance = distance > 100       # 거리 100m 이상이면 안전
-        is_far_distance = distance > 300        # 거리 300m 이상이면 원거리
+        # 위협 상태 분석
+        is_threat_stopped = threat_speed < 1.5
+        is_safe_distance = distance > 150
+        is_far_distance = distance > 400
         
-        # 회피 성공 상태이거나 정지/원거리 위협이면 현재 방향 유지
-        if is_distance_increasing or (is_threat_stopped and is_safe_distance) or is_far_distance:
-            reason = ""
-            if is_distance_increasing:
-                if distance > 25:
-                    reason = "안전거리도달"
-                else:
-                    reason = "회피성공(거리증가)"
-                
-                # 회피 성공 상태 시작 시간 기록
-                if self.escape_success_time is None:
-                    self.escape_success_time = datetime.datetime.now()
-                    self.last_successful_heading = current_heading
-                    
-            elif is_threat_stopped and is_safe_distance:
-                reason = "정지/안전거리"
-            elif is_far_distance:
-                reason = "원거리"
+        # 회피 성공 확정 및 방향 기억
+        if is_distance_increasing and not self.evasion_success_confirmed:
+            self.evasion_success_confirmed = True
+            self.successful_evasion_heading = current_heading
+            self.escape_success_time = current_time
+            print(f"✅ [회피 성공] 성공한 방향 기억: {current_heading:.1f}도 (거리:{distance:.0f}m, 변화:{distance_change:.1f}m)")
+        
+        # 회피 성공 상태에서는 성공한 방향 유지
+        if self.evasion_success_confirmed and self.successful_evasion_heading is not None:
+            success_duration = (current_time - self.escape_success_time).total_seconds()
             
-            print(f"🎯 [직진 유지] {reason} - 현재 방향 유지: {current_heading:.1f}도 (속도:{threat_speed:.1f}, 거리:{distance:.0f}m, 증가횟수:{self.distance_increase_count}, 변화:{distance - self.previous_threat_distance if self.previous_threat_distance else 0:.1f}m)")
+            # 성공한 방향을 15초간 유지
+            if success_duration < 15.0:
+                print(f"🎯 [성공 유지] 성공한 회피방향 유지: {self.successful_evasion_heading:.1f}도 (지속:{success_duration:.1f}초)")
+                return self.successful_evasion_heading
+            else:
+                # 15초 후에도 안전하면 회피 성공 상태 해제
+                if distance > 100:
+                    self.evasion_success_confirmed = False
+                    print(f"🏁 [회피 완료] 안전거리 확보, 정상 항해 복귀")
+        
+        # 안전 상태면 현재 방향 유지
+        if (is_threat_stopped and is_safe_distance) or is_far_distance:
+            reason = "정지/안전거리" if (is_threat_stopped and is_safe_distance) else "원거리"
+            print(f"🎯 [직진 유지] {reason} - 현재 방향: {current_heading:.1f}도")
             return current_heading
+        
+        # 방향 고정 시간 확인
+        direction_locked = False
+        if self.last_direction_change_time is not None:
+            time_since_change = (current_time - self.last_direction_change_time).total_seconds()
+            if time_since_change < self.direction_hold_duration:
+                direction_locked = True
+        
+        # 안정된 회피 방향이 있고 고정 시간 내라면 유지
+        if self.stable_evasion_heading is not None and direction_locked:
+            # 현재 방향이 목표와 크게 다르지 않으면 유지
+            heading_diff = abs(((current_heading - self.stable_evasion_heading + 180) % 360) - 180)
+            if heading_diff < 30:  # 30도 이내 차이면 유지
+                print(f"🔒 [방향 유지] 안정된 회피방향 유지: {self.stable_evasion_heading:.1f}도 (고정 {time_since_change:.1f}초)")
+                return self.stable_evasion_heading
+        
+        # 새로운 회피 방향 계산
+        new_evasion_heading = self.calculate_new_evasion_heading(closest_threat, current_heading)
+        
+        # 방향 변경이 필요한지 확인
+        if self.stable_evasion_heading is None:
+            # 처음 회피 방향 설정
+            self.stable_evasion_heading = new_evasion_heading
+            self.last_direction_change_time = current_time
+            print(f"🚀 [새 회피방향] 초기 회피방향 설정: {new_evasion_heading:.1f}도")
         else:
-            # 거리가 증가하지 않으면 회피 성공 상태 리셋
-            self.escape_success_time = None
-            self.last_successful_heading = None
+            # 기존 방향과 비교
+            heading_diff = abs(((new_evasion_heading - self.stable_evasion_heading + 180) % 360) - 180)
+            
+            # 큰 차이가 있고 안정 프레임이 충분하면 방향 변경
+            if heading_diff > 20 and self.consecutive_stable_frames >= self.min_stable_frames:
+                self.stable_evasion_heading = new_evasion_heading
+                self.last_direction_change_time = current_time
+                self.consecutive_stable_frames = 0
+                print(f"🔄 [방향 변경] 새로운 회피방향: {new_evasion_heading:.1f}도 (이전: {current_heading:.1f}도)")
         
-        # 어뢰의 이동 방향 추정 (어뢰 → 수상함 방향)
+        return self.stable_evasion_heading
+    
+    def calculate_new_evasion_heading(self, threat, current_heading):
+        """새로운 회피 방향 계산"""
         ship_pos = self.platform.mo.get_position()
-        threat_pos = closest_threat.get_position()
+        threat_pos = threat.get_position()
+        threat_speed = self.calculate_speed(threat)
+        ship_speed = abs(self.platform.mo.xy_speed)
+        distance = self.calculate_distance(self.platform.mo, threat)
         
-        # 어뢰의 이동 방향 (어뢰가 수상함을 향해 오는 방향)
+        # 어뢰의 진행 방향 추정
         torpedo_heading = math.degrees(math.atan2(ship_pos[0] - threat_pos[0], ship_pos[1] - threat_pos[1]))
         if torpedo_heading < 0:
             torpedo_heading += 360
         
-        # 회피 성공 상태 유지 확인 (최소 10초간 유지)
-        if self.escape_success_time is not None:
-            success_duration = (datetime.datetime.now() - self.escape_success_time).total_seconds()
-            if success_duration < 10.0:  # 10초 미만이면 계속 직진
-                print(f"🎯 [성공 상태 유지] 회피 성공 후 직진 유지: {current_heading:.1f}도 (지속시간:{success_duration:.1f}초)")
-                return current_heading
-        
-        # 현재 회피 효과성 확인
-        current_escape_effectiveness = self.evaluate_current_escape_effectiveness(closest_threat, current_heading)
-        
-        # 현재 회피가 효과적이면 유지 (60%로 낮춤 - 더 관대하게)
-        if current_escape_effectiveness > 0.6:
-            print(f"🎯 [회피 유지] 현재 방향 효과적 - 유지: {current_heading:.1f}도 (효과도:{current_escape_effectiveness:.2f})")
-            return current_heading
-        
-        # 현실적 회피 전략: 어뢰와 비슷한 방향으로 회피 (30-60도 각도)
-        ship_speed = abs(self.platform.mo.xy_speed)  # 수상함 속도
-        
-        # 속도 비율에 따른 회피각 결정
-        if threat_speed > ship_speed * 1.5:  # 어뢰가 훨씬 빠름
-            # 어뢰와 거의 같은 방향으로 도망 (±20도)
-            escape_offset = 20
-        elif threat_speed > ship_speed:  # 어뢰가 빠름  
-            # 적당한 각도로 회피 (±30도)
-            escape_offset = 30
-        else:  # 어뢰가 느리거나 비슷함
-            # 큰 각도로 회피 가능 (±45도)
-            escape_offset = 45
-        
-        # 급격한 방향 전환 방지 (현재 방향 기준 ±120도 제한)
-        max_turn_angle = 120
-        
-        # 어뢰 진행방향 기준으로 좌우 회피각 계산
-        left_escape = (torpedo_heading - escape_offset) % 360
-        right_escape = (torpedo_heading + escape_offset) % 360
-        
-        # 현재 방향 기준 허용 범위
-        min_allowed = (current_heading - max_turn_angle) % 360
-        max_allowed = (current_heading + max_turn_angle) % 360
-        
-        # 각도 범위 내 확인 함수
-        def is_angle_in_range(angle, min_ang, max_ang):
-            if min_ang <= max_ang:
-                return min_ang <= angle <= max_ang
-            else:  # 0도 경계 넘나드는 경우
-                return angle >= min_ang or angle <= max_ang
-        
-        # 허용 범위 내 회피각 선택
-        candidates = []
-        if is_angle_in_range(left_escape, min_allowed, max_allowed):
-            candidates.append((left_escape, "좌측"))
-        if is_angle_in_range(right_escape, min_allowed, max_allowed):
-            candidates.append((right_escape, "우측"))
-        
-        if candidates:
-            # 현재 방향과 가장 가까운 회피각 선택
-            def angle_diff(a1, a2):
-                diff = abs(a1 - a2)
-                return min(diff, 360 - diff)
-            
-            best_angle, best_side = min(candidates, 
-                key=lambda x: angle_diff(x[0], current_heading))
-            ideal_escape_angle = best_angle
-            escape_side = best_side
+        # 속도비에 따른 회피 전략
+        if threat_speed > ship_speed * 2:
+            # 매우 빠른 어뢰: 동일 방향으로 도주 (±15도)
+            escape_angle = 15
+        elif threat_speed > ship_speed * 1.2:
+            # 빠른 어뢰: 약간의 각도로 회피 (±25도)
+            escape_angle = 25
         else:
-            # 허용 범위 내에 적절한 회피각이 없으면 현재 방향 유지
-            print(f"🎯 [급회전 방지] 현재 방향 유지: {current_heading:.1f}도 (효과도:{current_escape_effectiveness:.2f})")
-            return current_heading
+            # 느린 어뢰: 큰 각도로 회피 가능 (±40도)
+            escape_angle = 40
         
-        print(f"🎯 [전술 회피] 어뢰방향:{torpedo_heading:.1f}도 → {escape_side} {escape_offset}도 회피:{ideal_escape_angle:.1f}도 (속도비:{threat_speed:.1f}/{ship_speed:.1f}, 효과도:{current_escape_effectiveness:.2f})")
-        return ideal_escape_angle
-    
+        # 좌우 회피 방향 계산
+        left_escape = (torpedo_heading - escape_angle) % 360
+        right_escape = (torpedo_heading + escape_angle) % 360
+        
+        # 현재 방향과 가까운 쪽 선택 (급격한 방향전환 방지)
+        def angle_diff(a1, a2):
+            diff = abs(a1 - a2)
+            return min(diff, 360 - diff)
+        
+        left_diff = angle_diff(current_heading, left_escape)
+        right_diff = angle_diff(current_heading, right_escape)
+        
+        # 이전에 성공한 방향이 있다면 우선 고려
+        if self.successful_evasion_heading is not None:
+            success_left_diff = angle_diff(self.successful_evasion_heading, left_escape)
+            success_right_diff = angle_diff(self.successful_evasion_heading, right_escape)
+            
+            if success_left_diff < success_right_diff:
+                chosen_heading = left_escape
+                side = "좌측(성공방향)"
+            else:
+                chosen_heading = right_escape
+                side = "우측(성공방향)"
+        else:
+            # 현재 방향과 가까운 쪽 선택
+            if left_diff < right_diff:
+                chosen_heading = left_escape
+                side = "좌측"
+            else:
+                chosen_heading = right_escape
+                side = "우측"
+        
+        print(f"🎯 [회피 계산] 어뢰방향:{torpedo_heading:.1f}도 → {side} {escape_angle}도 회피: {chosen_heading:.1f}도 (거리:{distance:.0f}m)")
+        return chosen_heading
+
     def evaluate_current_escape_effectiveness(self, threat, current_heading):
         """현재 회피 방향의 효과성 평가 (0.0~1.0)"""
         if self.previous_threat_distance is None:
@@ -326,7 +348,7 @@ class CommandControl(BehaviorModel):
         return self.being_tracked
 
     def update_intelligent_evasion(self, current_time):
-        """적응형 점진적 회피: 현재 진행방향 기준으로 어뢰로부터 멀어지는 최적 경로"""
+        """안정적이고 부드러운 회피 기동: 지그재그 현상 방지"""
         if self.maneuver_start_time is None:
             return
         
@@ -338,12 +360,7 @@ class CommandControl(BehaviorModel):
             # 추적당하고 있으면 최적 탈출각으로 점진적 회피
             target_angle = self.calculate_optimal_escape_angle()
             
-            # 현재 방향 유지 조건 확인 (위협 무시 조건과 동일)
-            if target_angle == current_heading:
-                print(f"🎯 [방향 유지] 위협 무시 상태 - 현재 방향 계속: {current_heading:.1f}도")
-                return
-            
-            # 점진적 방향 전환 (한 번에 최대 20도씩 변경 - 더 빠르게)
+            # 현재 방향과 목표 방향의 차이 계산
             angle_diff = target_angle - current_heading
             
             # 각도 차이를 -180~180 범위로 정규화
@@ -352,34 +369,53 @@ class CommandControl(BehaviorModel):
             elif angle_diff < -180:
                 angle_diff += 360
             
-            # 점진적 변경 (최대 20도씩으로 증가)
-            max_turn_rate = 20
-            if abs(angle_diff) > max_turn_rate:
+            # 목표각에 도달했거나 매우 가까우면 미세 조정
+            if abs(angle_diff) <= 2.0:
+                # 목표각에 거의 도달 - 현재 방향 유지
+                print(f"🎯 [목표 도달] 목표각 도달: {current_heading:.1f}도 ≈ {target_angle:.1f}도")
+                return
+            elif abs(angle_diff) <= 10.0:
+                # 목표각에 가까움 - 매우 부드럽게 조정 (2도씩)
+                turn_rate = 2.0
+            elif abs(angle_diff) <= 30.0:
+                # 중간 거리 - 적당히 조정 (8도씩)
+                turn_rate = 8.0
+            else:
+                # 목표각이 멀음 - 빠르게 조정 (15도씩)
+                turn_rate = 15.0
+            
+            # 방향 전환량 계산
+            if abs(angle_diff) > turn_rate:
                 if angle_diff > 0:
-                    new_heading = current_heading + max_turn_rate
+                    new_heading = current_heading + turn_rate
                 else:
-                    new_heading = current_heading - max_turn_rate
+                    new_heading = current_heading - turn_rate
             else:
                 new_heading = target_angle
             
             # 각도 정규화
             new_heading = new_heading % 360
             
-            self.platform.mo.change_heading(new_heading)
-            print(f"🚀 [적응 회피] {current_heading:.1f}도 → {new_heading:.1f}도 (목표: {target_angle:.1f}도)")
+            # 실제 방향 변경이 필요한 경우만 적용
+            heading_change = abs(((new_heading - current_heading + 180) % 360) - 180)
+            if heading_change >= 1.0:  # 1도 이상 차이날 때만 변경
+                self.platform.mo.change_heading(new_heading)
+                print(f"🚀 [부드러운 회피] {current_heading:.1f}도 → {new_heading:.1f}도 (목표: {target_angle:.1f}도, 변경량: {heading_change:.1f}도)")
+            else:
+                print(f"🎯 [안정 유지] 미세 차이로 방향 유지: {current_heading:.1f}도")
+                
         else:
-            # 추적당하지 않으면 현재 방향 유지 (더 이상 270도로 강제 복귀하지 않음)
-            # 단, 극단적인 각도(예: 뒤로 가는 경우)라면 보정
-            if 90 <= current_heading <= 180:  # 후진 방향이면
-                # 앞쪽 방향으로 점진적 보정
+            # 추적당하지 않으면 현재 방향 유지하되, 극단적 방향이면 점진적 보정
+            if 90 <= current_heading <= 180:  # 후진 방향
+                # 전진 방향으로 점진적 보정 (5도씩)
                 if current_heading <= 135:
-                    new_heading = current_heading - 10  # 더 앞쪽으로
+                    new_heading = max(0, current_heading - 5)  # 북쪽 방향으로
                 else:
-                    new_heading = current_heading + 10  # 더 앞쪽으로
+                    new_heading = min(360, current_heading + 5)  # 북쪽 방향으로
                 
                 new_heading = new_heading % 360
                 self.platform.mo.change_heading(new_heading)
-                print(f"🏃 [방향 보정] {current_heading:.1f}도 → {new_heading:.1f}도 (후진 방지)")
+                print(f"🏃 [방향 보정] 후진 방지: {current_heading:.1f}도 → {new_heading:.1f}도")
 
 
 

@@ -12,29 +12,29 @@ SurfaceShip:
     LauncherObject:
       DecoyObjects:
         # stationary decoy
-        - type: "stationary"
-          elevation: 0
-          azimuth: 270
-          speed: 1
-          lifespan: 15
+        # - type: "stationary"
+        #   elevation: 0
+        #   azimuth: 270
+        #   speed: 1
+        #   lifespan: 15
         
         - type: "stationary"
           elevation: 75
-          azimuth: 240
-          speed: 15
+          azimuth: 250
+          speed: 12
           lifespan: 15
 
         - type: "stationary"
           elevation: 75
-          azimuth: 300
-          speed: 15
+          azimuth: 290
+          speed: 12
           lifespan: 15
 
         - type: "stationary"
           elevation: 75
           azimuth: 270
-          speed: 12
-          lifespan: 10
+          speed: 10
+          lifespan: 8
 
         # self_propelled decoy
         - type: "self_propelled"
@@ -46,7 +46,7 @@ SurfaceShip:
           xy_speed: 3
         
         - type: "self_propelled"
-          elevation: 45
+          elevation: 60
           azimuth: 300
           speed: 12
           lifespan: 30
