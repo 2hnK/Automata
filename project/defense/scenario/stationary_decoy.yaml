@@ -11,31 +11,53 @@ SurfaceShip:
       z_speed: 0
     LauncherObject:
       DecoyObjects:
+        # stationary decoy
         - type: "stationary"
-          elevation: 45
-          azimuth: 45
-          speed: 8
-          lifespan: 8
+          elevation: 0
+          azimuth: 270
+          speed: 1
+          lifespan: 15
+        
         - type: "stationary"
-          elevation: 45
-          azimuth: 135
-          speed: 8
-          lifespan: 8
+          elevation: 75
+          azimuth: 240
+          speed: 15
+          lifespan: 15
+
         - type: "stationary"
-          elevation: 45
-          azimuth: 225
-          speed: 8
-          lifespan: 8
+          elevation: 75
+          azimuth: 300
+          speed: 15
+          lifespan: 15
+
         - type: "stationary"
+          elevation: 75
+          azimuth: 270
+          speed: 12
+          lifespan: 10
+
+        # self_propelled decoy
+        - type: "self_propelled"
+          elevation: 60
+          azimuth: 240
+          speed: 12
+          lifespan: 30
+          heading: 270
+          xy_speed: 3
+        
+        - type: "self_propelled"
           elevation: 45
-          azimuth: 315
-          speed: 8
-          lifespan: 8
+          azimuth: 300
+          speed: 12
+          lifespan: 30
+          heading: 270
+          xy_speed: 3
+
     DetectorObject:
       detection_range: 40
     CommandControlObject:
       evation_heading: 270
-      decoy_deployment_range: 35
+      decoy_deployment_range: 45
 
 Torpedo:
   - ManueverObject:
